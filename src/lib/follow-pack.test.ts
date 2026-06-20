@@ -97,4 +97,16 @@ describe('contact-list publishing template', () => {
       ['p', C],
     ]);
   });
+
+  it('falls back to identity follows when a contact-list result has no tags array', () => {
+    const malformed = event({
+      kind: KIND_CONTACTS,
+      tags: undefined as unknown as string[][],
+    });
+
+    expect(createContactListTemplate(malformed, [B], [C], 123).tags).toEqual([
+      ['p', B],
+      ['p', C],
+    ]);
+  });
 });

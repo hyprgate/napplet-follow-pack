@@ -27,8 +27,12 @@ export interface ContactListTemplate {
 }
 
 function tagValue(event: Pick<NostrEvent, 'tags'>, name: string): string | null {
-  const value = event.tags.find((tag) => tag[0] === name)?.[1]?.trim();
+  const value = tagsFor(event).find((tag) => tag[0] === name)?.[1]?.trim();
   return value ? value : null;
+}
+
+function tagsFor(event: Pick<NostrEvent, 'tags'> | null | undefined): string[][] {
+  return Array.isArray(event?.tags) ? event.tags : [];
 }
 
 function validPubkey(value: string | undefined): value is string {
@@ -43,7 +47,7 @@ export function parseFollowPackEvent(event: NostrEvent): FollowPack | null {
   if (event.kind !== KIND_FOLLOW_PACK) return null;
 
   const dTag = tagValue(event, 'd') ?? event.id;
-  const pubkeys = [...new Set(event.tags
+  const pubkeys = [...new Set(tagsFor(event)
     .filter((tag) => tag[0] === 'p' && validPubkey(tag[1]))
     .map((tag) => tag[1]!.toLowerCase()))];
 
@@ -92,7 +96,7 @@ export function createContactListTemplate(
   pubkeysToAdd: Iterable<string>,
   now = Math.floor(Date.now() / 1000),
 ): ContactListTemplate {
-  const existingTags = existingContactList?.tags.filter((tag) => tag[0] === 'p' && validPubkey(tag[1])) ?? [];
+  const existingTags = tagsFor(existingContactList).filter((tag) => tag[0] === 'p' && validPubkey(tag[1]));
   const tags = existingTags.length > 0
     ? existingTags.map((tag) => [...tag])
     : [...new Set([...knownFollows].filter(validPubkey).map((pubkey) => pubkey.toLowerCase()))].map((pubkey) => ['p', pubkey]);

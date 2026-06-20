@@ -67,6 +67,10 @@
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#121816"/><path d="M0 288H640V360H0Z" fill="#1f3a33"/><circle cx="512" cy="96" r="72" fill="#5dd39e" opacity=".55"/><text x="40" y="196" fill="#d7ffe9" font-family="ui-monospace,monospace" font-size="34">Follow Pack</text><text x="40" y="242" fill="#96c8aa" font-family="ui-monospace,monospace" font-size="24">${safeTitle}</text></svg>`;
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }
+
+  function backgroundImageStyle(url: string): string {
+    return `background-image: url(${JSON.stringify(url)})`;
+  }
 </script>
 
 <main class="follow-pack-shell">
@@ -96,11 +100,16 @@
 
       {#each state.packs as pack (pack.id)}
         <article class:selected={selected?.id === pack.id} class="pack-card">
-          {#if pack.image}
-            <img class="cover" use:resourceImage={pack.image} alt={`${pack.title} cover`} />
-          {:else}
-            <img class="cover" src={placeholderImage(pack.title)} alt={`${pack.title} placeholder cover`} />
-          {/if}
+          <div
+            class="cover"
+            style={backgroundImageStyle(placeholderImage(pack.title))}
+            role="img"
+            aria-label={`${pack.title} cover`}
+          >
+            {#if pack.image}
+              <img class="cover-image" use:resourceImage={pack.image} alt="" loading="lazy" />
+            {/if}
+          </div>
           <div class="pack-body">
             <button type="button" class="pack-title" onclick={() => store.select(pack.id)}>
               {pack.title}
@@ -135,11 +144,12 @@
             {@const profile = profiles.get(pubkey)}
             {@const alreadyFollowing = state.followedPubkeys.has(pubkey)}
             <article class="profile-row">
-              {#if profile?.picture}
-                <img class="avatar" use:resourceImage={profile.picture} alt={`${profileName(pubkey)} avatar`} />
-              {:else}
-                <div class="avatar placeholder" style={pubkeyColorStyle(pubkey)}>{profileName(pubkey).slice(0, 1).toUpperCase()}</div>
-              {/if}
+              <div class="avatar" style={pubkeyColorStyle(pubkey)} aria-hidden="true">
+                <span>{profileName(pubkey).slice(0, 1).toUpperCase()}</span>
+                {#if profile?.picture}
+                  <img class="avatar-image" use:resourceImage={profile.picture} alt="" loading="lazy" />
+                {/if}
+              </div>
               <div class="profile-copy">
                 <strong>{profileName(pubkey)}</strong>
                 <code>{shortNpub(pubkey)}</code>
@@ -275,11 +285,22 @@
   }
 
   .cover {
+    position: relative;
+    overflow: hidden;
     width: 112px;
     aspect-ratio: 16 / 10;
-    object-fit: cover;
     border-radius: 6px;
     background: var(--hg-bg-elevated, #17211c);
+    background-size: cover;
+    background-position: center;
+  }
+
+  .cover-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
   }
 
   .pack-body {
@@ -338,18 +359,31 @@
   }
 
   .avatar {
+    position: relative;
+    overflow: hidden;
     width: 42px;
     height: 42px;
     border-radius: 50%;
-    object-fit: cover;
     background: var(--hg-bg-elevated, #17211c);
-  }
-
-  .avatar.placeholder {
     display: grid;
     place-items: center;
     font-weight: 700;
     border: 1px solid currentColor;
+  }
+
+  .avatar span {
+    position: relative;
+    z-index: 0;
+  }
+
+  .avatar-image {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: var(--hg-bg-elevated, #17211c);
   }
 
   .profile-copy {

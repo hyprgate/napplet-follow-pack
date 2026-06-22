@@ -97,11 +97,16 @@ export function createContactListTemplate(
   now = Math.floor(Date.now() / 1000),
 ): ContactListTemplate {
   const existingTags = tagsFor(existingContactList).filter((tag) => tag[0] === 'p' && validPubkey(tag[1]));
-  const tags = existingTags.length > 0
-    ? existingTags.map((tag) => [...tag])
-    : [...new Set([...knownFollows].filter(validPubkey).map((pubkey) => pubkey.toLowerCase()))].map((pubkey) => ['p', pubkey]);
+  const tags = existingTags.map((tag) => [...tag]);
 
   const seen = new Set(tags.map((tag) => tag[1]!.toLowerCase()));
+  for (const pubkey of knownFollows) {
+    const normalized = pubkey.toLowerCase();
+    if (!validPubkey(normalized) || seen.has(normalized)) continue;
+    tags.push(['p', normalized]);
+    seen.add(normalized);
+  }
+
   for (const pubkey of pubkeysToAdd) {
     const normalized = pubkey.toLowerCase();
     if (!validPubkey(normalized) || seen.has(normalized)) continue;

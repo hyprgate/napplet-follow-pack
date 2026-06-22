@@ -101,7 +101,7 @@ function subscribeRelay(ctx: FollowPackContext, filter: NostrFilter): void {
 
 function subscribeOutbox(ctx: FollowPackContext, filter: NostrFilter): void {
   ctx.pendingEose += 1;
-  const sub = outbox.subscribe(filter, { strategy: 'outbox', live: true });
+  const sub = outbox.subscribe([filter], { strategy: 'outbox', live: true });
   sub.on('event', (event) => handlePackEvent(ctx, event as NostrEvent));
   sub.on('eose', () => finishEose(ctx));
   ctx.subs.push({ close: () => sub.close() });

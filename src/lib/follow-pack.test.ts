@@ -98,6 +98,19 @@ describe('contact-list publishing template', () => {
     ]);
   });
 
+  it('merges in-memory follows when the latest contact-list event is stale', () => {
+    const staleExisting = event({
+      kind: KIND_CONTACTS,
+      tags: [['p', B]],
+    });
+
+    expect(createContactListTemplate(staleExisting, [B, C], [D], 123).tags).toEqual([
+      ['p', B],
+      ['p', C],
+      ['p', D],
+    ]);
+  });
+
   it('falls back to identity follows when a contact-list result has no tags array', () => {
     const malformed = event({
       kind: KIND_CONTACTS,

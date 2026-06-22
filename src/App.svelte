@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { inc } from '@napplet/sdk';
   import { nip19 } from 'nostr-tools';
   import { pubkeyColorStyle, resourceImage } from '@hyprgate/utils';
   import {
@@ -16,8 +17,9 @@
 
   let state = $state<FollowPackState>({ ...store.state });
   let profiles = $state<Map<string, ProfileContent>>(new Map());
+  let detailOpen = $state(false);
 
-  const selected = $derived(selectedPack(state));
+  const selected = $derived(detailOpen ? selectedPack(state) : null);
 
   function syncState(): void {
     state = {
@@ -71,6 +73,19 @@
   function backgroundImageStyle(url: string): string {
     return `background-image: url(${JSON.stringify(url)})`;
   }
+
+  function viewDetails(packId: string): void {
+    store.select(packId);
+    detailOpen = true;
+  }
+
+  function closeDetails(): void {
+    detailOpen = false;
+  }
+
+  function openProfile(pubkey: string): void {
+    inc.emit('profile:open', [], JSON.stringify({ pubkey }));
+  }
 </script>
 
 <main class="follow-pack-shell">
@@ -90,8 +105,49 @@
     <p class="notice">{state.status}</p>
   {/if}
 
-  <section class="content">
-    <div class="pack-list" aria-label="Follow packs">
+  {#if selected}
+    <section class="detail-view" aria-label="Follow pack detail">
+      <div class="detail-heading">
+        <button type="button" class="subtle" onclick={closeDetails}>Back</button>
+        <div>
+          <p class="eyebrow">Pack detail</p>
+          <h2>{selected.title}</h2>
+          <p>{selected.newCount} new follows out of {selected.totalCount}</p>
+        </div>
+        <button type="button" disabled={selected.newCount === 0 || state.publishing} onclick={() => store.followPack(selected)}>
+          {selected.newCount === 0 ? 'All followed' : 'Follow all'}
+        </button>
+      </div>
+
+      <div class="profiles">
+        {#each selected.pubkeys as pubkey (pubkey)}
+          {@const profile = profiles.get(pubkey)}
+          {@const alreadyFollowing = state.followedPubkeys.has(pubkey)}
+          <article class="profile-row">
+            <div class="avatar" style={pubkeyColorStyle(pubkey)} aria-hidden="true">
+              <span>{profileName(pubkey).slice(0, 1).toUpperCase()}</span>
+              {#if profile?.picture}
+                <img class="avatar-image" use:resourceImage={profile.picture} alt="" loading="lazy" />
+              {/if}
+            </div>
+            <div class="profile-copy">
+              <button type="button" class="profile-name" onclick={() => openProfile(pubkey)}>
+                {profileName(pubkey)}
+              </button>
+              <code>{shortNpub(pubkey)}</code>
+              {#if profile?.nip05}
+                <span>{profile.nip05}</span>
+              {/if}
+            </div>
+            <button type="button" disabled={alreadyFollowing || state.publishing} onclick={() => store.followPubkey(pubkey)}>
+              {alreadyFollowing ? 'Following' : 'Follow'}
+            </button>
+          </article>
+        {/each}
+      </div>
+    </section>
+  {:else}
+    <section class="pack-grid" aria-label="Follow packs">
       {#if state.loading && state.packs.length === 0}
         <p class="empty">Loading follow packs from outbox and super relays...</p>
       {:else if state.packs.length === 0}
@@ -99,7 +155,7 @@
       {/if}
 
       {#each state.packs as pack (pack.id)}
-        <article class:selected={selected?.id === pack.id} class="pack-card">
+        <article class="pack-card">
           <div
             class="cover"
             style={backgroundImageStyle(placeholderImage(pack.title))}
@@ -111,63 +167,22 @@
             {/if}
           </div>
           <div class="pack-body">
-            <button type="button" class="pack-title" onclick={() => store.select(pack.id)}>
-              {pack.title}
-            </button>
+            <h2>{pack.title}</h2>
             <p>{pack.description || 'No description provided.'}</p>
             <p class="counts">
               <strong>{pack.newCount}</strong> new of <strong>{pack.totalCount}</strong> profiles
             </p>
-            <button type="button" disabled={pack.newCount === 0 || state.publishing} onclick={() => store.followPack(pack)}>
-              {pack.newCount === 0 ? 'All followed' : 'Follow all'}
-            </button>
+            <div class="pack-actions">
+              <button type="button" disabled={pack.newCount === 0 || state.publishing} onclick={() => store.followPack(pack)}>
+                {pack.newCount === 0 ? 'All followed' : 'Follow all'}
+              </button>
+              <button type="button" onclick={() => viewDetails(pack.id)}>View details</button>
+            </div>
           </div>
         </article>
       {/each}
-    </div>
-
-    <aside class="detail" aria-label="Follow pack detail">
-      {#if selected}
-        <div class="detail-heading">
-          <div>
-            <p class="eyebrow">Pack detail</p>
-            <h2>{selected.title}</h2>
-            <p>{selected.newCount} new follows out of {selected.totalCount}</p>
-          </div>
-          <button type="button" disabled={selected.newCount === 0 || state.publishing} onclick={() => store.followPack(selected)}>
-            Follow all
-          </button>
-        </div>
-
-        <div class="profiles">
-          {#each selected.pubkeys as pubkey (pubkey)}
-            {@const profile = profiles.get(pubkey)}
-            {@const alreadyFollowing = state.followedPubkeys.has(pubkey)}
-            <article class="profile-row">
-              <div class="avatar" style={pubkeyColorStyle(pubkey)} aria-hidden="true">
-                <span>{profileName(pubkey).slice(0, 1).toUpperCase()}</span>
-                {#if profile?.picture}
-                  <img class="avatar-image" use:resourceImage={profile.picture} alt="" loading="lazy" />
-                {/if}
-              </div>
-              <div class="profile-copy">
-                <strong>{profileName(pubkey)}</strong>
-                <code>{shortNpub(pubkey)}</code>
-                {#if profile?.nip05}
-                  <span>{profile.nip05}</span>
-                {/if}
-              </div>
-              <button type="button" disabled={alreadyFollowing || state.publishing} onclick={() => store.followPubkey(pubkey)}>
-                {alreadyFollowing ? 'Following' : 'Follow'}
-              </button>
-            </article>
-          {/each}
-        </div>
-      {:else}
-        <p class="empty">Select a follow pack to inspect individual profiles.</p>
-      {/if}
-    </aside>
-  </section>
+    </section>
+  {/if}
 </main>
 
 <style>
@@ -251,43 +266,38 @@
     color: var(--hg-accent-danger, #ff6b6b);
   }
 
-  .content {
+  .pack-grid {
     min-height: 0;
     flex: 1;
     display: grid;
-    grid-template-columns: minmax(280px, 0.9fr) minmax(340px, 1.1fr);
-  }
-
-  .pack-list,
-  .detail {
-    min-height: 0;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    align-content: start;
+    gap: 12px;
     overflow: auto;
     padding: 12px;
   }
 
-  .pack-list {
-    border-right: 1px solid var(--hg-border-default, #26332d);
+  .detail-view {
+    min-height: 0;
+    flex: 1;
+    overflow: auto;
+    padding: 12px;
   }
 
   .pack-card {
-    display: grid;
-    grid-template-columns: 112px minmax(0, 1fr);
+    display: flex;
+    flex-direction: column;
     gap: 12px;
     padding: 10px;
     border: 1px solid var(--hg-border-default, #26332d);
     border-radius: 8px;
     background: var(--hg-bg-surface, #101612);
-    margin-bottom: 10px;
-  }
-
-  .pack-card.selected {
-    border-color: var(--hg-accent-primary, #5dd39e);
   }
 
   .cover {
     position: relative;
     overflow: hidden;
-    width: 112px;
+    width: 100%;
     aspect-ratio: 16 / 10;
     border-radius: 6px;
     background: var(--hg-bg-elevated, #17211c);
@@ -310,18 +320,8 @@
     align-content: start;
   }
 
-  .pack-title {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    text-align: left;
-    color: var(--hg-text-primary, #eef8f1);
-    font-size: 15px;
-    font-weight: 700;
-  }
-
   .pack-body p,
-  .detail p,
+  .detail-view p,
   .profile-copy span {
     color: var(--hg-text-secondary, #b5c7bd);
     font-size: 12px;
@@ -332,11 +332,18 @@
     color: var(--hg-text-primary, #eef8f1) !important;
   }
 
-  .detail-heading {
+  .pack-actions {
     display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .detail-heading {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     justify-content: space-between;
     gap: 12px;
-    align-items: start;
+    align-items: center;
     padding-bottom: 12px;
     border-bottom: 1px solid var(--hg-border-default, #26332d);
   }
@@ -392,11 +399,21 @@
     gap: 2px;
   }
 
-  .profile-copy strong,
+  .profile-name,
   .profile-copy code {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .profile-name {
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--hg-text-primary, #eef8f1);
+    text-align: left;
+    font-weight: 700;
   }
 
   .profile-copy code {
@@ -407,25 +424,13 @@
   .empty {
     color: var(--hg-text-muted, #718078);
     padding: 16px;
+    grid-column: 1 / -1;
   }
 
   @media (max-width: 760px) {
-    .content {
+    .detail-heading {
       grid-template-columns: 1fr;
-    }
-
-    .pack-list {
-      border-right: 0;
-      border-bottom: 1px solid var(--hg-border-default, #26332d);
-      max-height: 48vh;
-    }
-
-    .pack-card {
-      grid-template-columns: 96px minmax(0, 1fr);
-    }
-
-    .cover {
-      width: 96px;
+      align-items: stretch;
     }
   }
 </style>

@@ -93,7 +93,7 @@ function subscribeRelay(ctx: FollowPackContext, filter: NostrFilter): void {
   ctx.pendingEose += 1;
   const sub = relay.subscribe(
     filter,
-    (event) => handlePackEvent(ctx, event as NostrEvent),
+    (result) => handlePackEvent(ctx, result.event as NostrEvent),
     () => finishEose(ctx),
   );
   ctx.subs.push(sub);
@@ -101,9 +101,9 @@ function subscribeRelay(ctx: FollowPackContext, filter: NostrFilter): void {
 
 function subscribeOutbox(ctx: FollowPackContext, filter: NostrFilter): void {
   ctx.pendingEose += 1;
-  const sub = outbox.subscribe([filter], { strategy: 'outbox', live: true });
-  sub.on('event', (event) => handlePackEvent(ctx, event as NostrEvent));
-  sub.on('eose', () => finishEose(ctx));
+  const sub = outbox.subscribe([filter], { strategy: 'outbox', live: false });
+  sub.on('event', (result) => handlePackEvent(ctx, result.event as NostrEvent));
+  sub.on('closed', () => finishEose(ctx));
   ctx.subs.push({ close: () => sub.close() });
 }
 
@@ -144,8 +144,9 @@ async function load(ctx: FollowPackContext): Promise<void> {
 }
 
 async function latestContactList(pubkey: string): Promise<NostrEvent | null> {
-  const events = await relay.query([{ kinds: [KIND_CONTACTS], authors: [pubkey], limit: 1 }]);
-  return (events as NostrEvent[])
+  const results = await relay.query([{ kinds: [KIND_CONTACTS], authors: [pubkey], limit: 1 }]);
+  return results
+    .map((result) => result.event as NostrEvent)
     .filter((event) => event.kind === KIND_CONTACTS && event.pubkey === pubkey)
     .sort((a, b) => b.created_at - a.created_at)[0] ?? null;
 }

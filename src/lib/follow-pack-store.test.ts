@@ -86,7 +86,7 @@ describe('createFollowPackStore', () => {
 
     expect(outboxSubscribe).toHaveBeenCalledWith(
       [{ kinds: [KIND_FOLLOW_PACK], limit: 120 }],
-      { strategy: 'outbox', live: true },
+      { strategy: 'outbox', live: false },
     );
   });
 
@@ -131,7 +131,7 @@ describe('createFollowPackStore', () => {
   });
 
   it('ingests malformed and empty pack events without throwing', async () => {
-    let onEvent: ((event: NostrEvent) => void) | null = null;
+    let onEvent: ((result: { event: NostrEvent }) => void) | null = null;
     relaySubscribe.mockImplementation((_filters, next, onEose) => {
       onEvent = next;
       onEose();
@@ -141,8 +141,8 @@ describe('createFollowPackStore', () => {
 
     store.load();
     await flush();
-    expect(() => onEvent?.(event({ tags: undefined as unknown as string[][] }))).not.toThrow();
-    expect(() => onEvent?.(event({ tags: [['d', 'empty']] }))).not.toThrow();
+    expect(() => onEvent?.({ event: event({ tags: undefined as unknown as string[][] }) })).not.toThrow();
+    expect(() => onEvent?.({ event: event({ tags: [['d', 'empty']] }) })).not.toThrow();
     expect(store.state.packs).toEqual([]);
   });
 });

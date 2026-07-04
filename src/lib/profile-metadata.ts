@@ -87,12 +87,12 @@ export function subscribeProfileMetadata(
     await shell?.ready();
     if (closed) return;
     if (shell?.supports('outbox') ?? false) {
-      const sub = outbox.subscribe(filters, { strategy: 'outbox', live: true });
-      sub.on('event', (event) => handleEvent(event as NostrEvent));
-      sub.on('eose', onDone);
+      const sub = outbox.subscribe(filters, { strategy: 'outbox', live: false });
+      sub.on('event', (result) => handleEvent(result.event as NostrEvent));
+      sub.on('closed', onDone);
       subscription = { close: () => sub.close() };
     } else {
-      subscription = relay.subscribe(filters, (event) => handleEvent(event as NostrEvent), onDone);
+      subscription = relay.subscribe(filters, (result) => handleEvent(result.event as NostrEvent), onDone);
     }
     if (closeWhenReady) subscription.close();
   })();

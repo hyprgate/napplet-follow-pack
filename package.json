@@ -5,20 +5,22 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "paja": "kehto paja --target-url http://localhost:9524 -- pnpm vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
-    "@hyprgate/types": "workspace:*",
-    "@hyprgate/utils": "workspace:*",
-    "@napplet/sdk": "0.21.0",
-    "@napplet/shim": "0.25.0",
+    "@hyprgate/types": "0.0.1",
+    "@hyprgate/utils": "0.0.1",
+    "@napplet/sdk": "0.23.0",
+    "@napplet/shim": "0.26.1",
     "nostr-tools": "2.23.3",
     "svelte": "^5.54.1"
   },
   "devDependencies": {
+    "@kehto/cli": "^0.2.9",
     "@napplet/vite-plugin": "0.10.1",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "jsdom": "^26.1.0",

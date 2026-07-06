@@ -12,6 +12,7 @@ const relaySubscribe = vi.hoisted(() => vi.fn());
 const relayQuery = vi.hoisted(() => vi.fn());
 const relayPublish = vi.hoisted(() => vi.fn());
 const outboxSubscribe = vi.hoisted(() => vi.fn());
+const outboxQuery = vi.hoisted(() => vi.fn());
 const identityGetPublicKey = vi.hoisted(() => vi.fn());
 const identityGetFollows = vi.hoisted(() => vi.fn());
 
@@ -22,6 +23,7 @@ vi.mock('@napplet/sdk', () => ({
   },
   outbox: {
     subscribe: outboxSubscribe,
+    query: outboxQuery,
   },
   relay: {
     subscribe: relaySubscribe,
@@ -75,19 +77,20 @@ describe('createFollowPackStore', () => {
       on: vi.fn(),
       close: vi.fn(),
     });
+    outboxQuery.mockResolvedValue({ events: [] });
     relayQuery.mockResolvedValue([]);
     relayPublish.mockResolvedValue({});
   });
 
-  it('passes an array of filters to outbox subscribe so the SDK shim can normalize it', async () => {
+  it('passes an array of filters to outbox query so the SDK shim can normalize it', async () => {
     const store = createFollowPackStore();
     store.load();
     await flush();
 
-    expect(outboxSubscribe).toHaveBeenCalledWith(
+    expect(outboxQuery).toHaveBeenCalledWith(
       [{ kinds: [KIND_FOLLOW_PACK], limit: 120 }],
-      { strategy: 'outbox', live: false },
     );
+    expect(outboxSubscribe).not.toHaveBeenCalled();
   });
 
   it('does not crash when identity.getFollows fails', async () => {

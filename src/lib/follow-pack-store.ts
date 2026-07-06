@@ -101,10 +101,16 @@ function subscribeRelay(ctx: FollowPackContext, filter: NostrFilter): void {
 
 function subscribeOutbox(ctx: FollowPackContext, filter: NostrFilter): void {
   ctx.pendingEose += 1;
-  const sub = outbox.subscribe([filter], { strategy: 'outbox', live: false });
-  sub.on('event', (result) => handlePackEvent(ctx, result.event as NostrEvent));
-  sub.on('closed', () => finishEose(ctx));
-  ctx.subs.push({ close: () => sub.close() });
+  let closed = false;
+  void outbox.query([filter])
+    .then((result) => {
+      if (closed) return;
+      for (const item of result.events) handlePackEvent(ctx, item.event as NostrEvent);
+    })
+    .finally(() => {
+      if (!closed) finishEose(ctx);
+    });
+  ctx.subs.push({ close: () => { closed = true; } });
 }
 
 async function load(ctx: FollowPackContext): Promise<void> {

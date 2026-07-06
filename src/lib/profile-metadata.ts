@@ -87,10 +87,13 @@ export function subscribeProfileMetadata(
     await shell?.ready();
     if (closed) return;
     if (shell?.supports('outbox') ?? false) {
-      const sub = outbox.subscribe(filters, { strategy: 'outbox', live: false });
-      sub.on('event', (result) => handleEvent(result.event as NostrEvent));
-      sub.on('closed', onDone);
-      subscription = { close: () => sub.close() };
+      subscription = NOOP_SUBSCRIPTION;
+      try {
+        const result = await outbox.query(filters);
+        for (const item of result.events) handleEvent(item.event as NostrEvent);
+      } finally {
+        if (!closed) onDone();
+      }
     } else {
       subscription = relay.subscribe(filters, (result) => handleEvent(result.event as NostrEvent), onDone);
     }

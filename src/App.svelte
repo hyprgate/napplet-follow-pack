@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { inc } from '@napplet/sdk';
-  import { nip19 } from 'nostr-tools';
-  import { pubkeyColorStyle, resourceImage } from '@hyprgate/utils';
+  import { intent } from '@napplet/sdk';
+  import * as nip19 from 'nostr-tools/nip19';
+  import { parseIntentResult } from '@hyprgate/types';
+  import { createProfileIntentRequest, pubkeyColorStyle, resourceImage } from '@hyprgate/utils';
   import {
     createFollowPackStore,
     selectedPack,
@@ -83,8 +84,16 @@
     detailOpen = false;
   }
 
-  function openProfile(pubkey: string): void {
-    inc.emit('profile:open', [], JSON.stringify({ pubkey }));
+  async function openProfile(pubkey: string): Promise<void> {
+    const request = createProfileIntentRequest({ pubkey });
+    if (!request) return;
+    try {
+      const result = parseIntentResult(await intent.invoke(request));
+      if (!result || result.archetype !== request.archetype || result.action !== (request.action ?? 'open')) return;
+      if (!result.ok || !result.handled) return;
+    } catch {
+      // Keep the existing no-op behavior when profile navigation is unavailable.
+    }
   }
 </script>
 

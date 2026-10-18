@@ -3,7 +3,7 @@
   import { intent } from '@napplet/sdk';
   import * as nip19 from 'nostr-tools/nip19';
   import { parseIntentResult } from '@hyprgate/types';
-  import { createProfileIntentRequest, pubkeyColorStyle, resourceImage } from '@hyprgate/utils';
+  import { invokeNappletIntent, createProfileIntentRequest, pubkeyColorStyle, resourceImage } from '@hyprgate/utils';
   import {
     createFollowPackStore,
     selectedPack,
@@ -88,9 +88,9 @@
     const request = createProfileIntentRequest({ pubkey });
     if (!request) return;
     try {
-      const result = parseIntentResult(await intent.invoke(request));
+      const result = parseIntentResult(await invokeNappletIntent(request));
       if (!result || result.archetype !== request.archetype || result.action !== (request.action ?? 'open')) return;
-      if (!result.ok || !result.handled) return;
+      if (!result.ok) return;
     } catch {
       // Keep the existing no-op behavior when profile navigation is unavailable.
     }

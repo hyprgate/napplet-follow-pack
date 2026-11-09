@@ -130,7 +130,7 @@ describe('createFollowPackStore', () => {
       tags: [['p', B], ['p', C]],
     }));
     expect(store.state.followedPubkeys.has(C)).toBe(true);
-    expect(store.state.status).toBe('Followed 1 profile.');
+    expect(store.state.status).toBe('Followed 1 person.');
   });
 
   it('ingests malformed and empty pack events without throwing', async () => {
@@ -147,5 +147,23 @@ describe('createFollowPackStore', () => {
     expect(() => onEvent?.({ event: event({ tags: undefined as unknown as string[][] }) })).not.toThrow();
     expect(() => onEvent?.({ event: event({ tags: [['d', 'empty']] }) })).not.toThrow();
     expect(store.state.packs).toEqual([]);
+  });
+
+  it('explains a read-only session in plain words, and clears it on request', async () => {
+    installShell(false);
+    identityGetPublicKey.mockResolvedValue(SELF);
+    identityGetFollows.mockResolvedValue([]);
+    relaySubscribe.mockReturnValue({ close: vi.fn() });
+    relayQuery.mockResolvedValue([]);
+    relayPublish.mockRejectedValueOnce(new Error('Cant sign events with readonly'));
+    const store = createFollowPackStore();
+    store.load();
+    await flush();
+    await store.followPubkey(A);
+    expect(store.state.error).toContain('read-only');
+    expect(store.state.followedPubkeys.has(A)).toBe(false);
+    store.clearNotices();
+    expect(store.state.error).toBeNull();
+    store.destroy();
   });
 });

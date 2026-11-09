@@ -9,7 +9,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "conformance": "pnpm build && napplet-conformance dist",
+    "test:conformance": "pnpm conformance"
   },
   "dependencies": {
     "@hyprgate/types": "workspace:*",
@@ -20,6 +22,8 @@
   },
   "devDependencies": {
     "@kehto/cli": "0.5.5",
+    "@napplet/conformance": "0.20.1",
+    "@napplet/conformance-cli": "0.3.4",
     "@napplet/vite-plugin": "0.16.1",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "jsdom": "^26.1.0",

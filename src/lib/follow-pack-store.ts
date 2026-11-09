@@ -24,6 +24,7 @@ export interface FollowPackState {
   packs: FollowPackSummary[];
   selectedId: string | null;
   followedPubkeys: Set<string>;
+  self: string | null;
   loading: boolean;
   publishing: boolean;
   error: string | null;
@@ -36,6 +37,7 @@ export interface FollowPackStore {
   select(id: string): void;
   followPack(pack: FollowPack): Promise<void>;
   followPubkey(pubkey: string): Promise<void>;
+  clearNotices(): void;
   destroy(): void;
 }
 
@@ -53,6 +55,7 @@ export function createInitialFollowPackState(): FollowPackState {
     packs: [],
     selectedId: null,
     followedPubkeys: new Set(),
+    self: null,
     loading: false,
     publishing: false,
     error: null,
@@ -61,7 +64,7 @@ export function createInitialFollowPackState(): FollowPackState {
 }
 
 function rebuild(ctx: FollowPackContext): void {
-  ctx.state.packs = ctx.rawPacks.map((pack) => summarizePack(pack, ctx.state.followedPubkeys));
+  ctx.state.packs = ctx.rawPacks.map((pack) => summarizePack(pack, ctx.state.followedPubkeys, ctx.self));
   if (!ctx.state.selectedId || !ctx.state.packs.some((pack) => pack.id === ctx.state.selectedId)) {
     ctx.state.selectedId = ctx.state.packs[0]?.id ?? null;
   }
@@ -130,6 +133,7 @@ async function load(ctx: FollowPackContext): Promise<void> {
       identity.getFollows().catch(() => []),
     ]);
     ctx.self = self;
+    ctx.state.self = self;
     ctx.state.followedPubkeys = new Set(follows.map((pubkey) => pubkey.toLowerCase()));
     rebuild(ctx);
     ctx.notify();
@@ -166,7 +170,7 @@ async function followPubkeys(ctx: FollowPackContext, pubkeys: string[]): Promise
 
   const toAdd = pubkeys.filter((pubkey) => !ctx.state.followedPubkeys.has(pubkey.toLowerCase()));
   if (toAdd.length === 0) {
-    ctx.state.status = 'Already following everyone selected.';
+    ctx.state.status = 'You already follow everyone here.';
     ctx.notify();
     return;
   }
@@ -181,9 +185,12 @@ async function followPubkeys(ctx: FollowPackContext, pubkeys: string[]): Promise
     const template = createContactListTemplate(existing, ctx.state.followedPubkeys, toAdd);
     await relay.publish(template);
     ctx.state.followedPubkeys = new Set([...ctx.state.followedPubkeys, ...toAdd.map((pubkey) => pubkey.toLowerCase())]);
-    ctx.state.status = `Followed ${toAdd.length} profile${toAdd.length === 1 ? '' : 's'}.`;
+    ctx.state.status = `Followed ${toAdd.length} ${toAdd.length === 1 ? 'person' : 'people'}.`;
   } catch (error) {
-    ctx.state.error = error instanceof Error ? error.message : 'Unable to publish follow list.';
+    const reason = error instanceof Error ? error.message : '';
+    ctx.state.error = /read.?only/i.test(reason)
+      ? "This session is read-only, so it can't update your follow list. Sign in with a key or a signer to follow people."
+      : `Couldn't update your follow list${reason ? `: ${reason}` : '.'}`;
   } finally {
     ctx.state.publishing = false;
     rebuild(ctx);
@@ -209,10 +216,15 @@ export function createFollowPackStore(onUpdate?: () => void): FollowPackStore {
       ctx.notify();
     },
     followPack(pack: FollowPack): Promise<void> {
-      return followPubkeys(ctx, newPubkeysFromPack(pack, ctx.state.followedPubkeys));
+      return followPubkeys(ctx, newPubkeysFromPack(pack, ctx.state.followedPubkeys, ctx.self));
     },
     followPubkey(pubkey: string): Promise<void> {
       return followPubkeys(ctx, [pubkey]);
+    },
+    clearNotices(): void {
+      ctx.state.error = null;
+      ctx.state.status = null;
+      ctx.notify();
     },
     destroy: () => destroy(ctx),
   };

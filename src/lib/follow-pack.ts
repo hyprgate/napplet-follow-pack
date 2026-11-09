@@ -65,12 +65,15 @@ export function parseFollowPackEvent(event: NostrEvent): FollowPack | null {
   };
 }
 
-export function summarizePack(pack: FollowPack, followedPubkeys: Iterable<string>): FollowPackSummary {
-  const follows = new Set([...followedPubkeys].map((pubkey) => pubkey.toLowerCase()));
+export function summarizePack(
+  pack: FollowPack,
+  followedPubkeys: Iterable<string>,
+  self: string | null = null,
+): FollowPackSummary {
   return {
     ...pack,
     totalCount: pack.pubkeys.length,
-    newCount: pack.pubkeys.filter((pubkey) => !follows.has(pubkey)).length,
+    newCount: newPubkeysFromPack(pack, followedPubkeys, self).length,
   };
 }
 
@@ -85,9 +88,26 @@ export function upsertPacks(packs: FollowPack[], incoming: FollowPack): FollowPa
   return [...byAddress.values()].sort((a, b) => b.createdAt - a.createdAt || a.title.localeCompare(b.title));
 }
 
-export function newPubkeysFromPack(pack: FollowPack, followedPubkeys: Iterable<string>): string[] {
+/** Who "Follow all" would add. You're never one of them, even if a pack lists you. */
+export function newPubkeysFromPack(
+  pack: FollowPack,
+  followedPubkeys: Iterable<string>,
+  self: string | null = null,
+): string[] {
   const follows = new Set([...followedPubkeys].map((pubkey) => pubkey.toLowerCase()));
-  return pack.pubkeys.filter((pubkey) => !follows.has(pubkey));
+  const me = self?.toLowerCase();
+  return pack.pubkeys.filter((pubkey) => !follows.has(pubkey) && pubkey !== me);
+}
+
+/** The follow button's words, and how a whole pack reads on a card. */
+export function packProgress(summary: Pick<FollowPackSummary, 'totalCount' | 'newCount'>): string {
+  const people = `${summary.totalCount} ${summary.totalCount === 1 ? 'person' : 'people'}`;
+  if (summary.newCount === 0) return people;
+  return `${people}, ${summary.newCount} you don't follow yet`;
+}
+
+export function followAllLabel(summary: Pick<FollowPackSummary, 'totalCount' | 'newCount'>): string {
+  return summary.newCount === summary.totalCount ? `Follow all ${summary.totalCount}` : `Follow ${summary.newCount} more`;
 }
 
 export function createContactListTemplate(

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { intent } from '@napplet/sdk';
+  import { onMount, tick } from 'svelte';
   import * as nip19 from 'nostr-tools/nip19';
   import { parseIntentResult } from '@hyprgate/types';
   import { invokeNappletIntent, createProfileIntentRequest, pubkeyColorStyle, resourceImage } from '@hyprgate/utils';
@@ -9,18 +8,24 @@
     selectedPack,
     type FollowPackState,
   } from './lib/follow-pack-store.js';
+  import { followAllLabel, packProgress, type FollowPackSummary } from './lib/follow-pack.js';
   import {
     subscribeProfileMetadata,
     type ProfileContent,
   } from './lib/profile-metadata.js';
+  import type { Subscription } from '@napplet/sdk';
 
+  const FACES_ON_CARD = 5;
   const store = createFollowPackStore(syncState);
 
   let state = $state<FollowPackState>({ ...store.state });
   let profiles = $state<Map<string, ProfileContent>>(new Map());
   let detailOpen = $state(false);
+  let visiblePackIds = $state(new Set<string>());
 
   const selected = $derived(detailOpen ? selectedPack(state) : null);
+  const watchedPubkeys = new Set<string>();
+  const profileSubs: Subscription[] = [];
 
   function syncState(): void {
     state = {
@@ -32,20 +37,40 @@
 
   onMount(() => {
     store.load();
-    return () => store.destroy();
+    return () => {
+      store.destroy();
+      for (const sub of profileSubs) sub.close();
+    };
   });
+
+  /** Metadata only for what's on screen, so a long list of packs stays light. */
+  function loadProfiles(pubkeys: string[]): void {
+    const fresh = pubkeys.filter((pubkey) => !watchedPubkeys.has(pubkey));
+    if (fresh.length === 0) return;
+    for (const pubkey of fresh) watchedPubkeys.add(pubkey);
+    profileSubs.push(subscribeProfileMetadata(fresh, (pubkey, profile) => {
+      profiles = new Map(profiles).set(pubkey, profile);
+    }));
+  }
 
   $effect(() => {
-    const pack = selected;
-    profiles = new Map();
-    if (!pack) return;
-
-    const sub = subscribeProfileMetadata(pack.pubkeys, (pubkey, profile) => {
-      profiles = new Map(profiles).set(pubkey, profile);
-    });
-
-    return () => sub.close();
+    const wanted: string[] = [];
+    for (const pack of state.packs) {
+      if (visiblePackIds.has(pack.id)) wanted.push(pack.author, ...pack.pubkeys.slice(0, FACES_ON_CARD));
+    }
+    if (selected) wanted.push(selected.author, ...selected.pubkeys);
+    loadProfiles(wanted);
   });
+
+  function trackVisible(node: HTMLElement, packId: string) {
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting) && !visiblePackIds.has(packId)) {
+        visiblePackIds = new Set(visiblePackIds).add(packId);
+      }
+    }, { rootMargin: '200px' });
+    observer.observe(node);
+    return { destroy: () => observer.disconnect() };
+  }
 
   function npub(pubkey: string): string {
     try {
@@ -60,28 +85,28 @@
     return value.length > 18 ? `${value.slice(0, 10)}...${value.slice(-6)}` : value;
   }
 
-  function profileName(pubkey: string): string {
+  function knownName(pubkey: string): string | null {
     const profile = profiles.get(pubkey);
-    return profile?.display_name ?? profile?.name ?? shortNpub(pubkey);
+    return profile?.display_name ?? profile?.name ?? profile?.nip05 ?? null;
   }
 
-  function placeholderImage(title: string): string {
-    const safeTitle = title.replace(/[<&>"]/g, '').slice(0, 28) || 'Follow Pack';
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><rect width="640" height="360" fill="#121816"/><path d="M0 288H640V360H0Z" fill="#1f3a33"/><circle cx="512" cy="96" r="72" fill="#5dd39e" opacity=".55"/><text x="40" y="196" fill="#d7ffe9" font-family="ui-monospace,monospace" font-size="34">Follow Pack</text><text x="40" y="242" fill="#96c8aa" font-family="ui-monospace,monospace" font-size="24">${safeTitle}</text></svg>`;
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-  }
-
-  function backgroundImageStyle(url: string): string {
-    return `background-image: url(${JSON.stringify(url)})`;
+  function profileName(pubkey: string): string {
+    return knownName(pubkey) ?? shortNpub(pubkey);
   }
 
   function viewDetails(packId: string): void {
+    store.clearNotices();
     store.select(packId);
     detailOpen = true;
   }
 
-  function closeDetails(): void {
+  async function closeDetails(): Promise<void> {
+    const packId = selected?.id;
+    store.clearNotices();
     detailOpen = false;
+    await tick();
+    // Back lands on the card you came from.
+    if (packId) document.querySelector<HTMLElement>(`[data-pack-details="${packId}"]`)?.focus();
   }
 
   async function openProfile(pubkey: string): Promise<void> {
@@ -97,60 +122,101 @@
   }
 </script>
 
+{#snippet avatar(pubkey: string, size: 'small' | 'large')}
+  <button
+    type="button"
+    class="avatar {size}"
+    style={pubkeyColorStyle(pubkey)}
+    title={profileName(pubkey)}
+    aria-label="Open profile for {profileName(pubkey)}"
+    onclick={() => openProfile(pubkey)}
+  >
+    <span>{profileName(pubkey).slice(0, 1).toUpperCase()}</span>
+    {#if profiles.get(pubkey)?.picture}
+      <img class="avatar-image" use:resourceImage={profiles.get(pubkey)?.picture} alt="" loading="lazy" />
+    {/if}
+  </button>
+{/snippet}
+
+{#snippet byline(pack: FollowPackSummary)}
+  <p class="byline">
+    By <button type="button" class="person-link" style={pubkeyColorStyle(pack.author)} onclick={() => openProfile(pack.author)}>{profileName(pack.author)}</button>
+  </p>
+{/snippet}
+
+{#snippet followAll(pack: FollowPackSummary)}
+  {#if pack.newCount === 0}
+    <span class="all-followed" role="status">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+      You follow everyone here
+    </span>
+  {:else}
+    <button type="button" class="primary" disabled={state.publishing} onclick={() => store.followPack(pack)}>
+      {state.publishing ? 'Following...' : followAllLabel(pack)}
+    </button>
+  {/if}
+{/snippet}
+
 <main class="follow-pack-shell">
   <header class="toolbar">
     <div>
-      <p class="eyebrow">NIP-51 starter packs</p>
       <h1>Follow Packs</h1>
+      <p class="intro">Lists of people put together by others. Follow a whole list, or pick a few.</p>
     </div>
-    <button type="button" onclick={() => store.load()} disabled={state.loading}>Refresh</button>
+    <button type="button" class="quiet" onclick={() => store.load()} disabled={state.loading}>
+      {state.loading ? 'Looking...' : 'Refresh'}
+    </button>
   </header>
 
   {#if state.error}
-    <p class="notice error">{state.error}</p>
+    <p class="notice error" role="alert">{state.error}</p>
   {/if}
 
   {#if state.status}
-    <p class="notice">{state.status}</p>
+    <p class="notice" role="status">{state.status}</p>
   {/if}
 
   {#if selected}
     <section class="detail-view" aria-label="Follow pack detail">
       <div class="detail-heading">
-        <button type="button" class="subtle" onclick={closeDetails}>Back</button>
-        <div>
-          <p class="eyebrow">Pack detail</p>
+        <button type="button" class="quiet" onclick={closeDetails}>Back</button>
+        <div class="detail-title">
           <h2>{selected.title}</h2>
-          <p>{selected.newCount} new follows out of {selected.totalCount}</p>
+          {@render byline(selected)}
+          {#if selected.description}<p>{selected.description}</p>{/if}
+          <p class="counts">{packProgress(selected)}</p>
         </div>
-        <button type="button" disabled={selected.newCount === 0 || state.publishing} onclick={() => store.followPack(selected)}>
-          {selected.newCount === 0 ? 'All followed' : 'Follow all'}
-        </button>
+        {@render followAll(selected)}
       </div>
 
       <div class="profiles">
         {#each selected.pubkeys as pubkey (pubkey)}
           {@const profile = profiles.get(pubkey)}
           {@const alreadyFollowing = state.followedPubkeys.has(pubkey)}
+          {@const isSelf = pubkey === state.self}
           <article class="profile-row">
-            <div class="avatar" style={pubkeyColorStyle(pubkey)} aria-hidden="true">
-              <span>{profileName(pubkey).slice(0, 1).toUpperCase()}</span>
-              {#if profile?.picture}
-                <img class="avatar-image" use:resourceImage={profile.picture} alt="" loading="lazy" />
-              {/if}
-            </div>
+            {@render avatar(pubkey, 'large')}
             <div class="profile-copy">
-              <button type="button" class="profile-name" onclick={() => openProfile(pubkey)}>
+              <button type="button" class="profile-name" style={pubkeyColorStyle(pubkey)} title={npub(pubkey)} onclick={() => openProfile(pubkey)}>
                 {profileName(pubkey)}
               </button>
-              <code>{shortNpub(pubkey)}</code>
-              {#if profile?.nip05}
+              {#if profile?.nip05 && profile.nip05 !== knownName(pubkey)}
                 <span>{profile.nip05}</span>
               {/if}
+              {#if knownName(pubkey)}
+                <code>{shortNpub(pubkey)}</code>
+              {/if}
             </div>
-            <button type="button" disabled={alreadyFollowing || state.publishing} onclick={() => store.followPubkey(pubkey)}>
-              {alreadyFollowing ? 'Following' : 'Follow'}
-            </button>
+            {#if isSelf}
+              <span class="row-state">This is you</span>
+            {:else if alreadyFollowing}
+              <span class="row-state followed">
+                <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+                Following
+              </span>
+            {:else}
+              <button type="button" disabled={state.publishing} onclick={() => store.followPubkey(pubkey)}>Follow</button>
+            {/if}
           </article>
         {/each}
       </div>
@@ -158,34 +224,35 @@
   {:else}
     <section class="pack-grid" aria-label="Follow packs">
       {#if state.loading && state.packs.length === 0}
-        <p class="empty">Loading follow packs from outbox and super relays...</p>
+        <p class="empty" role="status">Looking for follow packs on your relays...</p>
       {:else if state.packs.length === 0}
-        <p class="empty">No follow packs found yet.</p>
+        <p class="empty">No follow packs on your relays yet. Try Refresh in a bit.</p>
       {/if}
 
       {#each state.packs as pack (pack.id)}
-        <article class="pack-card">
-          <div
-            class="cover"
-            style={backgroundImageStyle(placeholderImage(pack.title))}
-            role="img"
-            aria-label={`${pack.title} cover`}
-          >
+        {@const hiddenFaces = Math.max(0, pack.totalCount - FACES_ON_CARD)}
+        <article class="pack-card" use:trackVisible={pack.id}>
+          <div class="cover" class:fallback={!pack.image} aria-hidden="true">
             {#if pack.image}
               <img class="cover-image" use:resourceImage={pack.image} alt="" loading="lazy" />
+            {:else}
+              <span class="cover-initial">{pack.title.slice(0, 1).toUpperCase()}</span>
             {/if}
           </div>
           <div class="pack-body">
             <h2>{pack.title}</h2>
-            <p>{pack.description || 'No description provided.'}</p>
-            <p class="counts">
-              <strong>{pack.newCount}</strong> new of <strong>{pack.totalCount}</strong> profiles
-            </p>
+            {@render byline(pack)}
+            {#if pack.description}<p>{pack.description}</p>{/if}
+            <div class="faces">
+              {#each pack.pubkeys.slice(0, FACES_ON_CARD) as pubkey (pubkey)}
+                {@render avatar(pubkey, 'small')}
+              {/each}
+              {#if hiddenFaces > 0}<span class="more-faces">+{hiddenFaces}</span>{/if}
+            </div>
+            <p class="counts">{packProgress(pack)}</p>
             <div class="pack-actions">
-              <button type="button" disabled={pack.newCount === 0 || state.publishing} onclick={() => store.followPack(pack)}>
-                {pack.newCount === 0 ? 'All followed' : 'Follow all'}
-              </button>
-              <button type="button" onclick={() => viewDetails(pack.id)}>View details</button>
+              {@render followAll(pack)}
+              <button type="button" class="quiet" data-pack-details={pack.id} onclick={() => viewDetails(pack.id)}>See who's in it</button>
             </div>
           </div>
         </article>
@@ -236,12 +303,6 @@
     font-size: 16px;
   }
 
-  .eyebrow {
-    color: var(--hg-accent-primary, #5dd39e);
-    font-size: 11px;
-    text-transform: uppercase;
-  }
-
   button {
     border: 1px solid var(--hg-border-default, #31433b);
     border-radius: 6px;
@@ -251,9 +312,88 @@
     cursor: pointer;
   }
 
-  button:hover:not(:disabled), button:focus-visible {
+  button:hover:not(:disabled) {
     border-color: var(--hg-accent-primary, #5dd39e);
-    outline: none;
+  }
+
+  button:focus-visible {
+    outline: 2px solid var(--hg-accent-focus, var(--hg-accent-primary, #5dd39e));
+    outline-offset: 1px;
+  }
+
+  .primary {
+    border-color: var(--hg-accent-primary, #5dd39e);
+    background: var(--hg-accent-primary, #5dd39e);
+    color: var(--hg-bg-base, #080b0a);
+    font-weight: 600;
+  }
+
+  .primary:hover:not(:disabled) {
+    opacity: 0.88;
+  }
+
+  .quiet {
+    background: transparent;
+  }
+
+  .intro,
+  .byline {
+    color: var(--hg-text-secondary, #b5c7bd);
+    font-size: 12px;
+  }
+
+  .person-link {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    font-size: inherit;
+  }
+
+  .person-link:hover {
+    text-decoration: underline;
+  }
+
+  .all-followed,
+  .row-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--hg-text-secondary, #b5c7bd);
+    font-size: 12px;
+  }
+
+  .all-followed {
+    color: var(--hg-text-primary, #eef8f1);
+  }
+
+  .all-followed svg,
+  .row-state svg {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: var(--hg-accent-primary, #5dd39e);
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .faces {
+    display: flex;
+    align-items: center;
+    padding-left: 6px;
+  }
+
+  .faces .avatar {
+    margin-left: -6px;
+    outline-offset: 0;
+  }
+
+  .more-faces {
+    margin-left: 6px;
+    color: var(--hg-text-muted, #718078);
+    font-size: 11px;
   }
 
   button:disabled {
@@ -307,11 +447,26 @@
     position: relative;
     overflow: hidden;
     width: 100%;
-    aspect-ratio: 16 / 10;
+    aspect-ratio: 16 / 7;
     border-radius: 6px;
     background: var(--hg-bg-elevated, #17211c);
-    background-size: cover;
-    background-position: center;
+  }
+
+  .cover.fallback {
+    display: grid;
+    place-items: center;
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--hg-accent-primary, #5dd39e) 28%, var(--hg-bg-elevated, #17211c)),
+      var(--hg-bg-elevated, #17211c)
+    );
+  }
+
+  .cover-initial {
+    color: var(--hg-text-primary, #eef8f1);
+    font-size: 28px;
+    font-weight: 700;
+    opacity: 0.8;
   }
 
   .cover-image {
@@ -343,8 +498,16 @@
 
   .pack-actions {
     display: flex;
+    align-items: center;
     gap: 8px;
     flex-wrap: wrap;
+    margin-top: 2px;
+  }
+
+  .detail-title {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
   }
 
   .detail-heading {
@@ -352,7 +515,7 @@
     grid-template-columns: auto minmax(0, 1fr) auto;
     justify-content: space-between;
     gap: 12px;
-    align-items: center;
+    align-items: start;
     padding-bottom: 12px;
     border-bottom: 1px solid var(--hg-border-default, #26332d);
   }
@@ -377,14 +540,23 @@
   .avatar {
     position: relative;
     overflow: hidden;
+    flex: none;
     width: 42px;
     height: 42px;
+    padding: 0;
     border-radius: 50%;
     background: var(--hg-bg-elevated, #17211c);
     display: grid;
     place-items: center;
     font-weight: 700;
     border: 1px solid currentColor;
+  }
+
+  .avatar.small {
+    width: 28px;
+    height: 28px;
+    border: 2px solid var(--hg-bg-surface, #101612);
+    font-size: 11px;
   }
 
   .avatar span {
@@ -420,9 +592,12 @@
     padding: 0;
     border: 0;
     background: transparent;
-    color: var(--hg-text-primary, #eef8f1);
     text-align: left;
     font-weight: 700;
+  }
+
+  .profile-name:hover {
+    text-decoration: underline;
   }
 
   .profile-copy code {
@@ -439,7 +614,8 @@
   @media (max-width: 760px) {
     .detail-heading {
       grid-template-columns: 1fr;
-      align-items: stretch;
+      align-items: start;
+      justify-items: start;
     }
   }
 </style>

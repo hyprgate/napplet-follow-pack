@@ -87,13 +87,11 @@ export function subscribeProfileMetadata(
     await shell?.ready();
     if (closed) return;
     if (shell?.supports('outbox') ?? false) {
-      subscription = NOOP_SUBSCRIPTION;
-      try {
-        const result = await outbox.query(filters);
-        for (const item of result.events) handleEvent(item.event as NostrEvent);
-      } finally {
-        if (!closed) onDone();
-      }
+      // A one-shot query can beat NIP-65 discovery and leave a bare npub for good.
+      const stream = outbox.subscribe(filters);
+      stream.on('event', (result) => handleEvent(result.event as NostrEvent));
+      subscription = stream;
+      onDone();
     } else {
       subscription = relay.subscribe(filters, (result) => handleEvent(result.event as NostrEvent), onDone);
     }

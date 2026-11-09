@@ -3,7 +3,9 @@ import type { NostrEvent } from '@hyprgate/types';
 import { KIND_CONTACTS, KIND_FOLLOW_PACK } from '@hyprgate/types';
 import {
   createContactListTemplate,
+  followAllLabel,
   newPubkeysFromPack,
+  packProgress,
   parseFollowPackEvent,
   summarizePack,
   upsertPacks,
@@ -121,5 +123,21 @@ describe('contact-list publishing template', () => {
       ['p', B],
       ['p', C],
     ]);
+  });
+
+  it('never counts you as someone to follow', () => {
+    const self = 'a'.repeat(64);
+    const other = 'b'.repeat(64);
+    const pack = { id: 'p', author: other, dTag: 'd', title: 't', description: '', image: null, pubkeys: [self, other], createdAt: 1 };
+    expect(newPubkeysFromPack(pack, [], self)).toEqual([other]);
+    expect(summarizePack(pack, [], self)).toMatchObject({ totalCount: 2, newCount: 1 });
+    expect(summarizePack(pack, [other], self).newCount).toBe(0);
+  });
+
+  it('words pack progress and the follow button for what is left', () => {
+    expect(packProgress({ totalCount: 3, newCount: 3 })).toBe("3 people, 3 you don't follow yet");
+    expect(packProgress({ totalCount: 1, newCount: 0 })).toBe('1 person');
+    expect(followAllLabel({ totalCount: 3, newCount: 3 })).toBe('Follow all 3');
+    expect(followAllLabel({ totalCount: 3, newCount: 1 })).toBe('Follow 1 more');
   });
 });
